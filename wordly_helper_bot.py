@@ -234,7 +234,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.run_polling()
 
-    async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
