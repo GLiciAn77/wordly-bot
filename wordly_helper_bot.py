@@ -214,7 +214,6 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
 import os
-
 TOKEN = os.getenv("BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))

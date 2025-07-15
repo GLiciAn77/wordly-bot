@@ -6,3 +6,4 @@ services:
     volumes:
       - ./feedback_log.txt:/app/feedback_log.txt
     restart: always
+#нужно чтобы этот файл появился
