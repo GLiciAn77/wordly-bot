@@ -1,14 +1,15 @@
-# Используем официальный образ Python
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Устанавливаем рабочую директорию
+# 1. создаём директорию
 WORKDIR /app
 
-# Копируем файлы проекта
+# 2. копируем файлы зависимостей и ставим их
+COPY pyproject.toml poetry.lock ./
+RUN pip install --no-cache-dir poetry && \
+    poetry install --no-root --no-dev
+
+# 3. копируем остальной код бота
 COPY . .
 
-# Устанавливаем зависимости
-RUN pip install --no-cache-dir python-telegram-bot
-
-# Запускаем бота
-CMD ["python", "wordly_helper_bot.py"]
+# 4. запускаем
+CMD ["poetry", "run", "python", "bot.py"]

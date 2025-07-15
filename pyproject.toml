@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wordly-helper-bot"
+version = "1.0.0"
+description = "Telegram bot assistant for Russian 5-letter word game"
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+    "python-telegram-bot>=20.0,<21.0",
+    "lxml>=4.9"
+]
