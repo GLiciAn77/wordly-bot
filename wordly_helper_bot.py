@@ -1,3 +1,5 @@
+# testing GitHub Actions auto-deploy
+
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from collections import Counter
