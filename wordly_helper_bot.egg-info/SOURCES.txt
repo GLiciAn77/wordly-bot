@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+wordly_helper_bot.py
+wordly_helper_bot.egg-info/PKG-INFO
+wordly_helper_bot.egg-info/SOURCES.txt
+wordly_helper_bot.egg-info/dependency_links.txt
+wordly_helper_bot.egg-info/requires.txt
+wordly_helper_bot.egg-info/top_level.txt
