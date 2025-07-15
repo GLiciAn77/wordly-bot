@@ -1,0 +1,6 @@
+version: '3.8'
+services:
+  wordly-bot:
+    build: .
+    container_name: wordly-bot
+    restart: always
