@@ -22,4 +22,4 @@ jobs:
             cd ~/wordly-bot
             git pull
             docker compose up -d --build
-#тест изменений
+#тест
