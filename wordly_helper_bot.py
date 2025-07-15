@@ -129,7 +129,7 @@ async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await update.message.reply_text(
             f"🤔 Я не нашёл слова *{word.upper()}* в своём словаре. Ты уверен?",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
             reply_markup=keyboard
         )
         return
