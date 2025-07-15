@@ -71,11 +71,14 @@ HELP_TEXT = """
 📝 *История ходов*
 — Покажу все твои прошлые попытки в виде цветных строк.
 
+✅ *Слово угадано*
+— Поздравлю и предложу начать заново без лишних вводов.
+
 🔙 *Удалить последний ход*
 — Уберу последнюю попытку, если ошибся.
 
 ♻️ *Начать заново*
-— Полностью сброшу твою историю.
+— Полностью сброшу твою историю и предложу начать сначала.
 
 ✉️ *Обратная связь*
 — Хочешь оставить отзыв? Напиши /feedback. Сначала текст, потом оценку от 1 💩 до 5 🚀.
@@ -102,6 +105,7 @@ def game_menu():
     keyboard = [
         [InlineKeyboardButton("🔙 Удалить последний ход", callback_data="undo"),
          InlineKeyboardButton("♻️ Начать заново", callback_data="restart")],
+        [InlineKeyboardButton("✅ Слово угадано", callback_data="guessed")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help"),
          InlineKeyboardButton("✉️ Обратная связь", callback_data="feedback")]
     ]
@@ -180,7 +184,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_message(update, "История пустая.", reply_markup=game_menu())
 
     elif data == "restart":
-        await start(update, context)  # теперь запускаем полный рестарт
+        await start(update, context)
+
+    elif data == "guessed":
+        await query.edit_message_text(
+            "🎉 Поздравляю! Ты угадал слово!\n\nХочешь сыграть ещё раз?",
+            reply_markup=main_menu()
+        )
+        user_sessions[user_id] = {
+            "history": [],
+            "possible_words": list(WORDS)
+        }
 
     elif data == "help":
         await send_message(update, HELP_TEXT, parse_mode="Markdown", reply_markup=main_menu())
