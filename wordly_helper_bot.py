@@ -38,12 +38,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 Справка по командам\n\n"
         "/newgame — начать новую игру\n"
-        "/stats — посмотреть сколько слов в словаре\n"
+        "/stats — сколько слов в словаре\n"
         "/help — эта справка\n"
-        "/feedback — оставить отзыв или предложение\n\n"
-        "После каждой попытки присылай результат:\n"
-        "⬜🟩🟨 или например 01210.\n\n"
-        "Ты можешь выбрать слово из кнопок или написать своё."
+        "/feedback — оставить отзыв\n\n"
+        "После каждой попытки пришли результат:\n"
+        "`0` — буквы нет\n"
+        "`1` — буква на месте 🟩\n"
+        "`2` — буква есть, но не на месте 🟨\n\n"
+        "Например: `01210` или ⬜🟩🟨🟩⬜.\n\n"
+        "Ты можешь выбрать слово из кнопок или написать своё.",
+        parse_mode="Markdown"
     )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -125,11 +129,14 @@ async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sessions[user_id]["last_word"] = word
     await update.message.reply_text(
-        f"✍ Теперь пришли результат для слова *{word}* в формате `01210` или ⬜🟩🟨.",
+        f"✍ Теперь пришли результат для слова *{word}*.\n\n"
+        "`0` — буквы нет\n"
+        "`1` — буква на месте 🟩\n"
+        "`2` — буква есть, но не на месте 🟨\n\n"
+        "Например: `01210` или ⬜🟩🟨🟩⬜.",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
-
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in sessions or "last_word" not in sessions[user_id]:
@@ -143,7 +150,14 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         emoji_to_digit = {"⬜":0, "🟩":1, "🟨":2}
         feedback_list = [emoji_to_digit.get(c, -1) for c in feedback]
         if -1 in feedback_list or len(feedback_list) != 5:
-            await update.message.reply_text("Формат не распознан. Используй `01210` или ⬜🟩🟨.")
+            await update.message.reply_text(
+                "Формат не распознан. Используй:\n"
+                "`0` — буквы нет\n"
+                "`1` — на месте 🟩\n"
+                "`2` — есть, но не на месте 🟨\n"
+                "Пример: `01210` или ⬜🟩🟨.",
+                parse_mode="Markdown"
+            )
             return
 
     if all(fb == 1 for fb in feedback_list):
