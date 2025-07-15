@@ -1,155 +1,283 @@
 import os
-import re
-import datetime
-from collections import Counter
-from telegram import Update, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import logging
+import random
+from datetime import datetime
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters
+)
+
+# Загрузка .env
+load_dotenv(".env")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Логирование
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 # Загрузка словаря
-current_dir = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(current_dir, "five_letter_words.txt")
+with open("five_letter_words.txt", encoding="utf-8") as f:
+    WORDS = set(line.strip().lower() for line in f if len(line.strip()) == 5)
 
-with open(file_path, encoding="utf-8") as f:
-    ALL_WORDS = [line.strip().lower() for line in f if len(line.strip()) == 5]
+# Состояние пользователей
+user_sessions = {}
+feedback_state = {}
 
-# Сессии пользователей
-sessions = {}
+# Тексты
+START_TEXT = """
+👋 Привет!
 
-def init_user_session(user_id):
-    sessions[user_id] = {
-        "possible_words": ALL_WORDS.copy(),
-        "awaiting_feedback_text": False,
-        "awaiting_feedback_rating": False,
-        "temp_feedback_text": "",
-        "history": []
-    }
+Я — твой помощник для игры в «5 букв» и любых аналогов Wordly на русском языке.
 
-def calculate_letter_frequencies(words):
-    counter = Counter()
-    for word in words:
-        counter.update(set(word))
-    return counter
+📝 Что я умею?
+Я помогу тебе угадать слово:
+• буду предлагать самые частотные слова для начала,
+• после каждой твоей попытки — фильтровать список,
+• и подсказывать лучшие варианты для следующего хода.
 
-def best_start_words(words, top_n=5):
-    letter_freq = calculate_letter_frequencies(words)
-    scores = []
-    for word in words:
-        unique_letters = set(word)
-        score = sum(letter_freq[c] for c in unique_letters)
-        scores.append((score, word))
-    scores.sort(reverse=True)
-    return [w for s, w in scores[:top_n]]
+💡 Как пользоваться ботом?
+1️⃣ Нажми 🎯 «Начать игру», я предложу слова для старта.
+2️⃣ После своей попытки в игре пришли мне результат в виде:
+   `0` — буквы нет ⬜
+   `1` — буква на месте 🟩
+   `2` — буква есть, но не на месте 🟨
+Например: `01210`.
 
-def render_grid(history):
-    lines = []
-    emoji_map = {0: "⬜", 1: "🟩", 2: "🟨"}
-    for i, (word, feedback) in enumerate(history, 1):
-        line = "".join(emoji_map[f] for f in feedback) + " " + word.upper()
-        lines.append(f"{i}. {line}")
-    for _ in range(5 - len(history)):
-        lines.append("⬜⬜⬜⬜⬜")
-    return "\n".join(lines)
+👇 Выбери, что хочешь сделать:
+"""
 
+HELP_TEXT = """
+ℹ️ Помощь
+
+Я — твой помощник для игры в «5 букв» и других аналогов Wordly на русском языке.
+
+Вот что я умею:
+
+🎯 *Начать игру*
+— Предложу самые частотные слова для первого хода. 
+— Ты можешь выбрать слово кнопкой или написать своё.
+
+🔢 *Ввести результат*
+— После того как попробуешь слово в игре, пришли мне код результата:
+  • `0` — буквы нет ⬜
+  • `1` — буква на месте 🟩
+  • `2` — буква есть, но не на месте 🟨
+Пример: `02110`.
+
+📝 *История ходов*
+— Покажу все твои прошлые попытки в виде цветных строк.
+
+🔙 *Удалить последний ход*
+— Уберу последнюю попытку, если ошибся.
+
+♻️ *Начать заново*
+— Полностью сброшу твою историю.
+
+✉️ *Обратная связь*
+— Хочешь оставить отзыв? Напиши /feedback. Сначала текст, потом оценку от 1 💩 до 5 🚀.
+"""
+
+# Универсальная отправка сообщений
+async def send_message(update, text, reply_markup=None, parse_mode=None):
+    if update.message:
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+# Главное меню
+def main_menu():
+    keyboard = [
+        [InlineKeyboardButton("🎯 Начать игру", callback_data="start_game")],
+        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help"),
+         InlineKeyboardButton("✉️ Обратная связь", callback_data="feedback")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# Игровое меню
+def game_menu():
+    keyboard = [
+        [InlineKeyboardButton("🔙 Удалить последний ход", callback_data="undo"),
+         InlineKeyboardButton("♻️ Начать заново", callback_data="restart")],
+        [InlineKeyboardButton("ℹ️ Помощь", callback_data="help"),
+         InlineKeyboardButton("✉️ Обратная связь", callback_data="feedback")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    init_user_session(user_id)
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 Начать игру", callback_data="new_game")],
-        [InlineKeyboardButton("🔍 Помощь", callback_data="help")],
-        [InlineKeyboardButton("✍ Оставить отзыв", callback_data="feedback")]
-    ])
-    await update.message.reply_text(
-        "👋 Привет! Я помогу тебе отгадать слово в игре «5 букв»!\n"
-        "Просто выбирай слова и присылай результат, а я буду сужать список возможных.\n\n"
-        "Выбери действие ниже:",
-        reply_markup=keyboard
-    )
+    print(f"DEBUG: start update = {update}")
+    user_sessions[update.effective_user.id] = {
+        "history": [],
+        "possible_words": list(WORDS)
+    }
+    await send_message(update, START_TEXT, reply_markup=main_menu())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await start(update, context)
+    print(f"DEBUG: help update = {update}")
+    await send_message(update, HELP_TEXT, reply_markup=main_menu(), parse_mode="Markdown")
 
-async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE, from_callback=False):
+# Обратная связь
+async def feedback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"DEBUG: feedback_start update = {update}")
+    feedback_state[update.effective_user.id] = {"step": "await_text"}
+    await send_message(update, "✍️ Напиши свой отзыв или предложение. Когда закончишь — просто отправь текст.")
+
+async def feedback_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in sessions:
-        init_user_session(user_id)
-    sessions[user_id]["possible_words"] = ALL_WORDS.copy()
-    sessions[user_id]["history"] = []
-    best_words = best_start_words(ALL_WORDS)
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(w.upper(), callback_data=f"try_{w}")] for w in best_words] +
-        [[InlineKeyboardButton("🎉 Слово отгадано!", callback_data="word_guessed")]]
-    )
-    text = "🎯 Новая игра!\nВыбери слово для первой попытки или напиши своё:"
-    if from_callback:
-        await update.callback_query.edit_message_text(text, reply_markup=keyboard)
-    else:
-        await update.message.reply_text(text, reply_markup=keyboard)
+    print(f"DEBUG: feedback_message update = {update}")
+    if feedback_state.get(user_id, {}).get("step") == "await_text":
+        feedback_state[user_id]["text"] = update.message.text
+        feedback_state[user_id]["step"] = "await_rating"
+        keyboard = [
+            [InlineKeyboardButton("1 💩", callback_data="rating_1"),
+             InlineKeyboardButton("2 😕", callback_data="rating_2"),
+             InlineKeyboardButton("3 🙂", callback_data="rating_3"),
+             InlineKeyboardButton("4 👍", callback_data="rating_4"),
+             InlineKeyboardButton("5 🚀", callback_data="rating_5")]
+        ]
+        await send_message(update, "Спасибо! Теперь оцени меня:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
-
-    if sessions.get(user_id, {}).get("awaiting_feedback_text"):
-        sessions[user_id]["temp_feedback_text"] = text
-        sessions[user_id]["awaiting_feedback_text"] = False
-        sessions[user_id]["awaiting_feedback_rating"] = True
-
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("1 💩", callback_data="feedback_1"),
-                InlineKeyboardButton("2 😕", callback_data="feedback_2"),
-                InlineKeyboardButton("3 🙂", callback_data="feedback_3"),
-                InlineKeyboardButton("4 👍", callback_data="feedback_4"),
-                InlineKeyboardButton("5 🚀", callback_data="feedback_5"),
-            ]
-        ])
-        await update.message.reply_text(
-            "🙏 Спасибо за твой отзыв!\n\n"
-            "А теперь оцени меня от 1 до 5, где:\n"
-            "1 — отстой 💩\n"
-            "5 — супер 🚀",
-            reply_markup=keyboard
-        )
-        return
-
-    if user_id not in sessions:
-        init_user_session(user_id)
-
-    # остальной геймплей - можешь вставить свою обработку guess
-
-async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    print(f"DEBUG: handle_rating update = {update}")
+    await query.answer()
+    rating = query.data.split("_")[1]
+    user_id = query.from_user.id
+    feedback_text = feedback_state.get(user_id, {}).get("text", "")
+    with open("feedback_log.txt", "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.now()}] FEEDBACK: {feedback_text}\nRATING: {rating}\n\n")
+    await query.edit_message_text("Спасибо за отзыв и оценку! 🚀")
+    feedback_state.pop(user_id, None)
+
+# Кнопки
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    print(f"DEBUG: handle_buttons update = {update}")
     await query.answer()
     user_id = query.from_user.id
     data = query.data
 
-    if data == "new_game":
-        await newgame(update, context, from_callback=True)
+    if data == "start_game":
+        user_sessions[user_id] = {"history": [], "possible_words": list(WORDS)}
+        top_words = random.sample(user_sessions[user_id]["possible_words"], 5)
+        buttons = [[InlineKeyboardButton(w.upper(), callback_data=f"word_{w}")] for w in top_words]
+        await send_message(update, "🎯 Выбери слово для хода или напиши своё:", 
+                           reply_markup=InlineKeyboardMarkup(buttons + list(game_menu().inline_keyboard)))
+
+    elif data.startswith("word_"):
+        word = data[5:]
+        await process_word_choice(update, context, user_id, word)
+
+    elif data == "undo":
+        if user_sessions[user_id]["history"]:
+            user_sessions[user_id]["history"].pop()
+            await send_message(update, "Удалил последний ход.", reply_markup=game_menu())
+        else:
+            await send_message(update, "История пустая.", reply_markup=game_menu())
+
+    elif data == "restart":
+        await start(update, context)  # теперь запускаем полный рестарт
 
     elif data == "help":
-        await start(update, context)
+        await send_message(update, HELP_TEXT, parse_mode="Markdown", reply_markup=main_menu())
 
     elif data == "feedback":
-        if user_id not in sessions:
-            init_user_session(user_id)
-        sessions[user_id]["awaiting_feedback_text"] = True
-        await query.edit_message_text("✍ Напиши свой отзыв или пожелания. Я всё прочту и учту!")
+        await feedback_start(update, context)
 
-    elif data.startswith("feedback_"):
-        rating = data[-1]
-        text = sessions[user_id].get("temp_feedback_text", "")
-        with open("feedback_log.txt", "a", encoding="utf-8") as fout:
-            fout.write(f"[{datetime.datetime.now()}] FEEDBACK: {text}\nRATING: {rating}\n\n")
-        await query.edit_message_text("✅ Спасибо! Я записал твой отзыв и оценку.")
-        sessions[user_id]["awaiting_feedback_rating"] = False
-        sessions[user_id]["temp_feedback_text"] = ""
+# Слова
+async def process_word_choice(update, context, user_id, word):
+    print(f"DEBUG: process_word_choice word = {word}")
+    if word not in WORDS:
+        keyboard = [[InlineKeyboardButton("✅ Да, всё правильно", callback_data=f"confirm_{word}"),
+                     InlineKeyboardButton("✏️ Исправить", callback_data="start_game")]]
+        await send_message(update,
+            f"⚠️ Слово {word.upper()} не найдено в словаре. Это точно то слово, которое ты ввёл в игре?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        session = user_sessions[user_id]
+        session["history"].append({"word": word, "pattern": None})
+        await send_message(update,
+            f"Принято слово {word.upper()}.\n"
+            "Теперь пришли результат вида 02120, где:\n"
+            "0 — буквы нет ⬜\n"
+            "1 — буква на месте 🟩\n"
+            "2 — буква есть, но не на месте 🟨",
+            reply_markup=game_menu()
+        )
 
+# Тексты
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"DEBUG: handle_message update = {update}")
+    user_id = update.effective_user.id
+
+    if feedback_state.get(user_id, {}).get("step") == "await_text":
+        await feedback_message(update, context)
+        return
+
+    text = update.message.text.strip().lower()
+    if len(text) == 5 and text.isalpha():
+        await process_word_choice(update, context, user_id, text)
+    elif set(text).issubset({"0", "1", "2"}) and len(text) == 5:
+        await process_pattern(update, context, user_id, text)
+    else:
+        await send_message(update, "Я не понял. Напиши слово (5 букв) или результат вида 02120.")
+
+# 02120
+async def process_pattern(update, context, user_id, pattern):
+    session = user_sessions.setdefault(user_id, {"history": [], "possible_words": list(WORDS)})
+    if not session["history"]:
+        await send_message(update, "Сначала введи слово.")
+        return
+
+    last = session["history"][-1]
+    last["pattern"] = pattern
+    session["possible_words"] = filter_words(session["possible_words"], last["word"], pattern)
+    history_text = "\n".join(format_history(h["word"], h["pattern"]) for h in session["history"])
+    remaining_count = len(session["possible_words"])
+
+    if remaining_count > 0:
+        top_words = random.sample(session["possible_words"], min(5, remaining_count))
+        buttons = [[InlineKeyboardButton(w.upper(), callback_data=f"word_{w}")] for w in top_words]
+        reply_markup = InlineKeyboardMarkup(buttons + list(game_menu().inline_keyboard))
+    else:
+        reply_markup = game_menu()
+
+    await send_message(update,
+        f"Вот твоя история:\n{history_text}\n\nОсталось {remaining_count} слов.",
+        reply_markup=reply_markup
+    )
+
+def format_history(word, pattern):
+    if not pattern:
+        return word.upper()
+    colors = {"0":"⬜", "1":"🟩", "2":"🟨"}
+    return "".join(colors[c] for c in pattern) + f" = {word.upper()}"
+
+def filter_words(words, last_word, pattern):
+    return [w for w in words if is_match(w, last_word, pattern)]
+
+def is_match(word, target, pattern):
+    for w_c, t_c, p in zip(word, target, pattern):
+        if p == "0" and t_c in word:
+            return False
+        if p == "1" and w_c != t_c:
+            return False
+        if p == "2" and (t_c not in word or w_c == t_c):
+            return False
+    return True
+
+# Запуск
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("newgame", newgame))
-    app.add_handler(CommandHandler("feedback", feedback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_word))
-    app.add_handler(CallbackQueryHandler(handle_inline_buttons))
+    app.add_handler(CommandHandler("feedback", feedback_start))
+    app.add_handler(CallbackQueryHandler(handle_buttons, pattern="^(?!rating_).*"))
+    app.add_handler(CallbackQueryHandler(handle_rating, pattern=r'^rating_\d'))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
