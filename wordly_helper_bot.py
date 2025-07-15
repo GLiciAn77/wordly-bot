@@ -50,6 +50,12 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
 
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_words = len(ALL_WORDS)
+    await update.message.reply_text(
+        f"📊 Сейчас в словаре {total_words} существительных из 5 букв."
+    )
+
 async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     word = update.message.text.strip().lower()
@@ -147,6 +153,7 @@ def main():
     app = ApplicationBuilder().token("7708015298:AAGFBGvQvEgPFJmfJ43AAPj99k9tWbwP09k").build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("newgame", newgame))
+    app.add_handler(CommandHandler("stats", stats))  # добавили сюда
     app.add_handler(MessageHandler(filters.Regex(r"^[012⬜🟩🟨]{5}$"), handle_feedback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_word))
     app.run_polling()
