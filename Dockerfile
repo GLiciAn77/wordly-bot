@@ -4,7 +4,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # 2. копируем файлы зависимостей и ставим их
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir poetry && \
     poetry install --no-root --no-dev
 
