@@ -1,6 +1,7 @@
 # testing GitHub Actions auto-deploy
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import CallbackQueryHandler
 from collections import Counter
 import os
 import re
@@ -17,9 +18,10 @@ with open(file_path, encoding="utf-8") as f:
 sessions = {}
 
 def calculate_letter_frequencies(words):
+    from collections import Counter
     counter = Counter()
     for word in words:
-        counter.update(set(word))
+        counter.update(set(word))  # set(word) — учитываем только уникальные буквы
     return counter
 
 def best_start_words(words, top_n=5):
@@ -121,10 +123,14 @@ async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if word not in sessions[user_id]["possible_words"]:
         sessions[user_id]["awaiting_unknown_confirm"] = word
-        keyboard = [["✅ Всё верно"], ["🔄 Ввести другое слово"]]
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Всё верно", callback_data="confirm_word")],
+            [InlineKeyboardButton("🔄 Ввести другое", callback_data="change_word")]
+        ])
         await update.message.reply_text(
-            f"🤔 Я не нашёл слова «{word}» в своём словаре. Ты уверен, что написал правильно?",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            f"🤔 Я не нашёл слова *{word.upper()}* в своём словаре. Ты уверен?",
+            parse_mode="Markdown"
+            reply_markup=keyboard
         )
         return
 
@@ -225,7 +231,26 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^[012⬜🟩🟨]{5}$"), handle_feedback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_word))
     app.add_handler(MessageHandler(filters.ALL, unknown))
+    app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.run_polling()
+
+    async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "confirm_word":
+        unknown_word = sessions[user_id].get("awaiting_unknown_confirm")
+        if unknown_word:
+            with open("feedback_log.txt", "a", encoding="utf-8") as fout:
+                fout.write(f"[{datetime.datetime.now()}] USER confirmed unknown word '{unknown_word}' as valid.\n")
+            await query.edit_message_text("✅ Записал в журнал и продолжаем.")
+            sessions[user_id]["awaiting_unknown_confirm"] = None
+
+    elif data == "change_word":
+        sessions[user_id]["awaiting_unknown_confirm"] = None
+        await query.edit_message_text("✍ Напиши другое слово:")
 
 if __name__ == "__main__":
     main() 
