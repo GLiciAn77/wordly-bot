@@ -12,7 +12,7 @@ file_path = os.path.join(current_dir, "five_letter_words.txt")
 with open(file_path, encoding="utf-8") as f:
     ALL_WORDS = [line.strip().lower() for line in f if len(line.strip()) == 5]
 
-# Хранение сессий
+# Сессии пользователей
 sessions = {}
 
 def calculate_letter_frequencies(words):
@@ -37,10 +37,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 Справка по командам\n\n"
-        "/newgame — начать новую игру и получить список слов для первой попытки.\n"
-        "/stats — показать, сколько слов в словаре.\n"
-        "/help — вывести эту справку.\n"
-        "/feedback <текст> — оставить отзыв или предложение.\n\n"
+        "/newgame — начать новую игру\n"
+        "/stats — посмотреть сколько слов в словаре\n"
+        "/help — эта справка\n"
+        "/feedback — оставить отзыв или предложение\n\n"
         "После каждой попытки присылай результат:\n"
         "⬜🟩🟨 или например 01210.\n\n"
         "Ты можешь выбрать слово из кнопок или написать своё."
@@ -50,19 +50,19 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 Сейчас в словаре {len(ALL_WORDS)} слов из 5 букв.")
 
 async def feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = ' '.join(context.args)
-    if not text:
-        await update.message.reply_text("✍ Напиши после /feedback свой комментарий.")
-        return
-    with open("feedback_log.txt", "a", encoding="utf-8") as fout:
-        fout.write(f"[{datetime.datetime.now()}] FEEDBACK: {text}\n")
-    await update.message.reply_text("✅ Спасибо! Я записал твоё сообщение.")
+    user_id = update.effective_user.id
+    sessions.setdefault(user_id, {})
+    sessions[user_id]["awaiting_feedback"] = True
+    await update.message.reply_text(
+        "✍ Напиши свой отзыв или предложение. Я запишу его в журнал."
+    )
 
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     sessions[user_id] = {
         "possible_words": ALL_WORDS.copy(),
-        "awaiting_unknown_confirm": None
+        "awaiting_unknown_confirm": None,
+        "awaiting_feedback": False
     }
     best_words = best_start_words(sessions[user_id]["possible_words"])
     keyboard = [[w] for w in best_words]
@@ -74,7 +74,17 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    word = update.message.text.strip().lower()
+    text = update.message.text.strip()
+
+    # Если ждём отзыв
+    if sessions.get(user_id, {}).get("awaiting_feedback"):
+        with open("feedback_log.txt", "a", encoding="utf-8") as fout:
+            fout.write(f"[{datetime.datetime.now()}] FEEDBACK: {text}\n")
+        await update.message.reply_text("✅ Спасибо! Я записал твое сообщение.")
+        sessions[user_id]["awaiting_feedback"] = False
+        return
+
+    word = text.lower()
 
     if user_id not in sessions:
         await update.message.reply_text("Сначала начни с /newgame.")
@@ -88,7 +98,7 @@ async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sessions.pop(user_id, None)
         return
 
-    # Если ожидаем подтверждения
+    # Если ждём подтверждение неизвестного слова
     if sessions[user_id].get("awaiting_unknown_confirm"):
         if word == "✅ всё верно":
             unknown_word = sessions[user_id]["awaiting_unknown_confirm"]
@@ -104,7 +114,6 @@ async def handle_word(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("😕 Выбери один из вариантов: ✅ или 🔄.")
             return
 
-    # Если слово не найдено в возможных
     if word not in sessions[user_id]["possible_words"]:
         sessions[user_id]["awaiting_unknown_confirm"] = word
         keyboard = [["✅ Всё верно"], ["🔄 Ввести другое слово"]]
@@ -184,17 +193,17 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤔 Я тебя не понял. Вот что ты можешь сделать:\n\n"
         "/newgame — начать новую игру\n"
-        "/stats — посмотреть словарь\n"
+        "/stats — сколько слов в словаре\n"
         "/help — справка\n"
-        "/feedback <текст> — оставить отзыв."
+        "/feedback — оставить отзыв."
     )
 
 def main():
     app = ApplicationBuilder().token("7708015298:AAGFBGvQvEgPFJmfJ43AAPj99k9tWbwP09k").build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command)) #добавил помощь
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("feedback", feedback)) #добавил фидбек
+    app.add_handler(CommandHandler("feedback", feedback))
     app.add_handler(CommandHandler("newgame", newgame))
     app.add_handler(MessageHandler(filters.Regex(r"^[012⬜🟩🟨]{5}$"), handle_feedback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_word))
