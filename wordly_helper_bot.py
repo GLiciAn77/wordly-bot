@@ -213,9 +213,9 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 def main():
-import os
-TOKEN = os.getenv("BOT_TOKEN")
-app = ApplicationBuilder().token(TOKEN).build()
+    import os
+    TOKEN = os.getenv("BOT_TOKEN")
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))
@@ -227,4 +227,4 @@ app = ApplicationBuilder().token(TOKEN).build()
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    main() 
