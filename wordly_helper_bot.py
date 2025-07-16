@@ -79,9 +79,14 @@ HELP_TEXT = """
 
 ♻️ *Начать заново*
 — Полностью сброшу твою историю и предложу начать сначала.
+/new — то же самое, чтобы быстро начать с нуля.
+
+📊 *Статистика*
+/stats — покажу сколько слов в словаре и продолжу игру.
 
 ✉️ *Обратная связь*
-— Хочешь оставить отзыв? Напиши /feedback. Сначала текст, потом оценку от 1 💩 до 5 🚀.
+— Хочешь оставить отзыв? Нажми кнопку или напиши /feedback.
+Сначала текст, потом оценку от 1 💩 до 5 🚀.
 """
 
 # Универсальная отправка сообщений
@@ -145,6 +150,17 @@ async def feedback_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await send_message(update, "Спасибо! Теперь оцени меня:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count = len(WORDS)
+    user_id = update.effective_user.id
+    await send_message(update, f"📊 В словаре сейчас {count} слов.")
+    # возвращаем игрока обратно в процесс
+    if user_id in user_sessions and user_sessions[user_id]["history"]:
+        await send_message(update, "Продолжим игру ⬇️", reply_markup=game_menu())
+    else:
+        await send_message(update, "Что хочешь сделать дальше?", reply_markup=main_menu())
+
+
 async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     print(f"DEBUG: handle_rating update = {update}")
@@ -201,6 +217,21 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "feedback":
         await feedback_start(update, context)
+    
+    elif data.startswith("confirm_"):
+        word = data[8:]
+        session = user_sessions.setdefault(user_id, {"history": [], "possible_words": list(WORDS)})
+        session["history"].append({"word": word, "pattern": None})
+        with open("custom_words_log.txt", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now()}] USER {user_id} used custom word: {word}\n")
+        await send_message(update,
+            f"Принято слово {word.upper()} (не из словаря).\n"
+            "Теперь пришли результат вида 02120, где:\n"
+            "0 — буквы нет ⬜\n"
+            "1 — буква на месте 🟩\n"
+            "2 — буква есть, но не на месте 🟨",
+            reply_markup=game_menu()
+        )
 
 # Слова
 async def process_word_choice(update, context, user_id, word):
@@ -304,8 +335,10 @@ def is_match(word, target, pattern):
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("new", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("feedback", feedback_start))
+    app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CallbackQueryHandler(handle_buttons, pattern="^(?!rating_).*"))
     app.add_handler(CallbackQueryHandler(handle_rating, pattern=r'^rating_\d'))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
