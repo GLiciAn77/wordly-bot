@@ -275,14 +275,29 @@ def format_history(word, pattern):
 def filter_words(words, last_word, pattern):
     return [w for w in words if is_match(w, last_word, pattern)]
 
+from collections import Counter
+
 def is_match(word, target, pattern):
-    for w_c, t_c, p in zip(word, target, pattern):
-        if p == "0" and t_c in word:
-            return False
-        if p == "1" and w_c != t_c:
-            return False
-        if p == "2" and (t_c not in word or w_c == t_c):
-            return False
+    word_counter = Counter(word)
+    # Проверим точные позиции
+    for i, (w_c, t_c, p) in enumerate(zip(word, target, pattern)):
+        if p == "1":
+            if w_c != t_c:
+                return False
+            word_counter[t_c] -= 1
+    # Проверим присутствие в слове (2)
+    for i, (w_c, t_c, p) in enumerate(zip(word, target, pattern)):
+        if p == "2":
+            if w_c == t_c:
+                return False
+            if word_counter[t_c] <= 0:
+                return False
+            word_counter[t_c] -= 1
+    # Проверим отсутствие (0)
+    for i, (w_c, t_c, p) in enumerate(zip(word, target, pattern)):
+        if p == "0":
+            if word_counter[t_c] > 0:
+                return False
     return True
 
 # Запуск
